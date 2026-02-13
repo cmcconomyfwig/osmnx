@@ -126,6 +126,7 @@ useful_tags_way : list[str]
 
 from __future__ import annotations
 
+import contextvars
 import logging as lg
 from typing import TYPE_CHECKING
 from typing import Any
@@ -182,3 +183,37 @@ useful_tags_way: list[str] = [
     "tunnel",
     "width",
 ]
+
+# Concurrent async tasks sharing a single event loop can interleave at every
+# ``await``, so mutating module-level settings from one task is visible to all
+# others. This ContextVar gives each ``asyncio.Task`` an isolated override
+# dict; ``_get()`` checks it before falling back to the module-level default.
+# Sync code is unaffected and can continue using direct attribute access.
+_settings_overrides: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
+    "_settings_overrides",
+    default=None,
+)
+
+
+def _get(name: str) -> Any:  # noqa: ANN401
+    """
+    Get a setting value with per-task override support for async safety.
+
+    Concurrent ``asyncio.Task`` objects can each set their own overrides
+    via ``_settings_overrides`` without affecting other tasks. Falls back
+    to the module-level default when no override is set.
+
+    Parameters
+    ----------
+    name
+        The name of the setting to retrieve.
+
+    Returns
+    -------
+    value
+        The setting's current value.
+    """
+    overrides = _settings_overrides.get()
+    if overrides is not None and name in overrides:
+        return overrides[name]
+    return globals()[name]
