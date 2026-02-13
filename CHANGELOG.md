@@ -1,5 +1,9 @@
 # Changelog
 
+## CmcConomyFWIG PR
+
+- Add asyncio methods 
+
 ## 2.1.0 (TBD)
 
 - add Python 3.14 support (#1336)
