@@ -155,15 +155,13 @@ class TestAsyncHttp:
 
     @pytest.mark.asyncio
     async def test_resolve_url_to_ip(self) -> None:
-        """URL rewriting replaces hostname with IP and adds Host header."""
+        """Resolve returns original URL unchanged (no rewrite for TLS safety)."""
         url = "https://overpass-api.de/api/interpreter"
         resolved_url, headers = await _resolve_url_to_ip(url)
 
-        assert "Host" in headers
-        assert headers["Host"] == "overpass-api.de"
-        # the resolved URL should not contain the original hostname
-        # (it should have an IP address instead)
-        assert "overpass-api.de" not in resolved_url or resolved_url == url
+        # URL must be returned unchanged so TLS cert verification succeeds
+        assert resolved_url == url
+        assert headers == {}
 
     @pytest.mark.asyncio
     async def test_parse_response_success(self) -> None:
@@ -273,7 +271,7 @@ class TestAsyncOverpass:
             patch(
                 "osmnx.aio._http._resolve_url_to_ip",
                 new_callable=AsyncMock,
-                return_value=("https://1.2.3.4/api/interpreter", {"Host": "overpass-api.de"}),
+                return_value=("https://overpass-api.de/api/interpreter", {}),
             ),
         ):
             result = await _overpass._overpass_request(OrderedDict(data="test"))

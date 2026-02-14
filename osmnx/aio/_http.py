@@ -9,7 +9,6 @@ import warnings
 from json import JSONDecodeError
 from typing import Any
 from urllib.parse import urlparse
-from urllib.parse import urlunparse
 
 import httpx
 
@@ -111,13 +110,14 @@ async def _resolve_host_via_doh(hostname: str) -> str:
 
 
 async def _resolve_url_to_ip(url: str) -> tuple[str, dict[str, str]]:
-    """Resolve a URL's hostname to an IP and rewrite the URL.
+    """Resolve a URL's hostname to an IP address for logging purposes.
 
-    Unlike the sync ``_config_dns()`` which mutates global
-    ``socket.getaddrinfo``, this function returns a rewritten URL with the
-    IP address in place of the hostname, plus a ``Host`` header so the
-    server handles the request correctly. This avoids global state mutation
-    and is safe for concurrent async use.
+    The sync ``_config_dns()`` mutates global ``socket.getaddrinfo`` to pin
+    DNS so that the Overpass status check and subsequent query hit the same
+    server.  We cannot safely rewrite the URL to contain the raw IP because
+    TLS certificate verification requires the original hostname.  Instead we
+    resolve the IP for informational logging and return the original URL
+    unchanged, letting httpx perform standard DNS resolution.
 
     Parameters
     ----------
@@ -126,15 +126,14 @@ async def _resolve_url_to_ip(url: str) -> tuple[str, dict[str, str]]:
 
     Returns
     -------
-    resolved_url, extra_headers
-        The URL rewritten with the IP address, and a dict containing the
-        ``Host`` header.
+    url, extra_headers
+        The original URL (unchanged) and an empty headers dict.
     """
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
 
     try:
-        ip = socket.gethostbyname(hostname)
+        ip = await asyncio.to_thread(socket.gethostbyname, hostname)
     except socket.gaierror:  # pragma: no cover
         msg = (
             f"Encountered gaierror while trying to resolve {hostname!r},"
@@ -143,14 +142,9 @@ async def _resolve_url_to_ip(url: str) -> tuple[str, dict[str, str]]:
         utils.log(msg, level=lg.ERROR)
         ip = await _resolve_host_via_doh(hostname)
 
-    # rewrite the URL: replace hostname with IP, keep port if present
-    port = f":{parsed.port}" if parsed.port else ""
-    new_netloc = f"{ip}{port}"
-    resolved_url = urlunparse(parsed._replace(netloc=new_netloc))
-
     msg = f"Resolved {hostname!r} to {ip!r}"
     utils.log(msg, level=lg.INFO)
-    return resolved_url, {"Host": hostname}
+    return url, {}
 
 
 def _build_request_kwargs() -> tuple[dict[str, Any], dict[str, Any]]:
